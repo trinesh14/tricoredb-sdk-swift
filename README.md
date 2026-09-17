@@ -44,7 +44,7 @@ In `Package.swift`:
 
 ```swift
 dependencies: [
-    .package(url: "https://github.com/trinesh14/tricoredb-sdk-swift", from: "0.1.0")
+    .package(url: "https://github.com/trinesh14/tricoredb-sdk-swift", from: "0.2.0")
 ],
 targets: [
     .target(name: "YourApp", dependencies: [
@@ -122,6 +122,9 @@ time — the compiler enforces what the protocol requires. Use a
 | `requestTimeout` | `nil` | Server-side deadline stamped on each request |
 | `tls` | `nil` (plain TCP) | See [TLS](#tls) |
 | `features` | `.all` | Capabilities announced in the handshake |
+| `followLeader` | `true` | Send a `not_leader` refusal again, to the leader |
+| `leaderRetries` | `5` | How many times a refused request is sent again |
+| `leaderRetryDelay` | `.milliseconds(250)` | First pause before asking again; doubles up to 2 s |
 
 ```swift
 var options = TriCoreOptions(host: "db.internal", user: "admin", secret: "your-password")
@@ -339,11 +342,23 @@ never on the message text:
 
 `error.isConnectionFatal` says whether the connection can still be used.
 
-**Leader redirects.** In a cluster, a write that reaches a follower fails with
-`code == "not_leader"`, which `error.isRedirect` tests. When the leader is known,
-`error.leaderHint` holds its `host:port`; a `nil` hint means the leader is not known
-yet, so wait and retry. This client does not follow the redirect for you — where to
-resend a write is your application's decision.
+**Leader redirects.** In a cluster only the leader accepts writes, and a follower
+refuses with `code == "not_leader"` (`error.isRedirect`). The client handles that itself
+(`options.followLeader`, on by default):
+
+- when the refusal names the leader (`error.leaderHint`), it opens a connection there
+  with the same user, secret and TLS settings (the leader's host is the certificate
+  name), sends the request again, and keeps that connection (`await db.address`);
+- while an election is in progress (no hint), it waits and asks the same node again,
+  pausing 250 ms, then 500 ms, up to 2 s (`leaderRetryDelay`);
+- after `leaderRetries` (5) it throws the last refusal.
+
+This is safe because a `not_leader` refusal was applied nowhere. Nothing is sent again
+inside a session transaction, and never a refusal with `TriCoreError.outcomeUnknown`: a
+follower handed that request to the leader and lost the answer, or the leader could not
+confirm it, so it may have been applied. The leader's address must be reachable from your
+application; when it is not, the client keeps its connection and waits. To handle
+redirects yourself, set `options.followLeader = false`:
 
 ```swift
 do {

@@ -92,6 +92,18 @@ public struct TriCoreOptions: Sendable, Equatable {
     /// The capabilities announced in the handshake. The server grants only what was
     /// asked for, so removing one here is how a caller opts out of it.
     public var features: Feature
+    /// Send a request again when a cluster node refuses it with `not_leader`.
+    ///
+    /// The request goes to the leader the refusal names, over a new connection that
+    /// replaces this one (same user, secret and TLS settings, with the leader's host
+    /// as the certificate name), or, while no leader is known, to the same node after
+    /// a pause. That is safe because a `not_leader` refusal was applied nowhere. It
+    /// never happens inside a session transaction.
+    public var followLeader: Bool
+    /// How many times a refused request is sent again.
+    public var leaderRetries: Int
+    /// The first pause before asking again; it doubles up to two seconds.
+    public var leaderRetryDelay: Duration
 
     public init(
         host: String = "127.0.0.1",
@@ -104,7 +116,10 @@ public struct TriCoreOptions: Sendable, Equatable {
         readTimeout: Duration? = nil,
         requestTimeout: Duration? = nil,
         tls: TLSOptions? = nil,
-        features: Feature = .all
+        features: Feature = .all,
+        followLeader: Bool = true,
+        leaderRetries: Int = 5,
+        leaderRetryDelay: Duration = .milliseconds(250)
     ) {
         self.host = host
         self.port = port
@@ -117,6 +132,9 @@ public struct TriCoreOptions: Sendable, Equatable {
         self.requestTimeout = requestTimeout
         self.tls = tls
         self.features = features
+        self.followLeader = followLeader
+        self.leaderRetries = leaderRetries
+        self.leaderRetryDelay = leaderRetryDelay
     }
 }
 
@@ -130,5 +148,5 @@ extension TriCoreOptions: CustomStringConvertible {
 
 /// This package's own version, distinct from the wire protocol's.
 public enum TriCoreDBVersion {
-    public static let current = "0.1.0"
+    public static let current = "0.2.0"
 }

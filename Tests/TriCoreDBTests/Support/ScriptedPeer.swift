@@ -77,10 +77,13 @@ final class ScriptedPeer: @unchecked Sendable {
     }
 
     /// Options pointing at this peer.
+    /// A scripted peer plays one conversation, so following the leader is off here;
+    /// `FollowLeaderTests` covers it with peers that accept more.
     func options(user: String? = "admin", features: Feature = .all, readTimeout: Duration? = nil) -> TriCoreOptions {
         TriCoreOptions(
             host: "127.0.0.1", port: port, user: user, secret: "pw",
-            connectTimeout: .seconds(5), readTimeout: readTimeout, features: features)
+            connectTimeout: .seconds(5), readTimeout: readTimeout, features: features,
+            followLeader: false)
     }
 
     /// Connect a client to this peer.

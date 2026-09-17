@@ -36,6 +36,10 @@ public struct TriCoreError: Error, Sendable, Equatable {
 
     /// The code a Raft follower attaches when it cannot serve a request.
     public static let notLeader = "not_leader"
+    /// The code of a request a follower handed to the leader and lost the answer
+    /// to, or one the leader could not confirm. It may or may not have been
+    /// applied, so the client never sends it again.
+    public static let outcomeUnknown = "outcome_unknown"
 
     /// The failure category.
     public let kind: Kind
@@ -56,9 +60,8 @@ public struct TriCoreError: Error, Sendable, Equatable {
 
     /// True for every `not_leader` refusal, with or without a hint.
     ///
-    /// This client never follows the hint by itself: the address may be
-    /// unreachable from here, a new connection must authenticate again, and an open
-    /// session transaction cannot move to another node.
+    /// Unless ``TriCoreOptions/followLeader`` is off, the client has already sent the
+    /// request again before throwing this.
     public var isRedirect: Bool { code == TriCoreError.notLeader }
 
     /// Whether the connection that produced this error can still be used.
@@ -93,7 +96,7 @@ extension TriCoreError: CustomStringConvertible {
     public var description: String {
         var text = code.map { "\(kind.rawValue) [\($0)]: \(message)" } ?? "\(kind.rawValue): \(message)"
         if let leaderHint {
-            text += " (the leader serves clients at \(leaderHint); this client does not follow the hint on its own)"
+            text += " (the leader serves clients at \(leaderHint))"
         }
         return text
     }

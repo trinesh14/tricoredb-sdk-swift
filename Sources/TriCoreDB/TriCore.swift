@@ -15,8 +15,9 @@ import NIOCore
 /// await db.close()
 /// ```
 public actor TriCore {
-    private let connection: Connection
+    private var connection: Connection
     private let options: TriCoreOptions
+    private var currentAddress: String
 
     private var sessionIdentifier: String?
     private var granted: Feature = []
@@ -32,6 +33,7 @@ public actor TriCore {
     private init(connection: Connection, options: TriCoreOptions) {
         self.connection = connection
         self.options = options
+        self.currentAddress = TriCore.joinAddress(options.host, options.port)
         self.requestPrefix = TriCore.nextConnectionPrefix()
     }
 
@@ -130,6 +132,10 @@ public actor TriCore {
     /// Whether this connection has been closed.
     public var isClosed: Bool { closed || !connection.isActive }
 
+    /// The `host:port` this connection talks to. It changes when the client follows
+    /// the leader.
+    public var address: String { currentAddress }
+
     /// The database named in every request from this connection.
     public var database: String { options.database }
 
@@ -204,7 +210,76 @@ public actor TriCore {
             envelope["options"] = ["timeout_ms": .int(milliseconds)]
         }
 
-        let frame = try await exchange(tag: .request, payload: .object(envelope), timeout: options.readTimeout)
+        var pause = options.leaderRetryDelay
+        var retried = 0
+        while true {
+            do {
+                return try await sendOnce(.object(envelope))
+            } catch let error as TriCoreError where error.isRedirect {
+                // A `not_leader` refusal was applied nowhere, so sending it again cannot
+                // apply it twice. A session transaction belongs to this connection.
+                guard options.followLeader, !transactionOpen, retried < options.leaderRetries else {
+                    guard retried > 0 else { throw error }
+                    throw TriCoreError(
+                        kind: error.kind,
+                        message: "\(error.message) (sent again \(retried) times, refused each time)",
+                        code: error.code, leaderHint: error.leaderHint)
+                }
+                retried += 1
+                if let hint = error.leaderHint, hint != currentAddress, await moveTo(hint) {
+                    continue
+                }
+                try await Task.sleep(for: pause)
+                pause = min(max(pause * 2, .milliseconds(1)), .seconds(2))
+            }
+        }
+    }
+
+    /// Replace this connection with one to `target`, opened the way this one was.
+    /// Returns false, leaving this connection untouched, when that fails.
+    private func moveTo(_ target: String) async -> Bool {
+        guard let (host, port) = TriCore.splitAddress(target) else { return false }
+        var leader = options
+        leader.host = host
+        leader.port = port
+        leader.connectTimeout = min(options.connectTimeout, .seconds(3))
+        leader.followLeader = false
+        if leader.tls != nil {
+            // The leader's certificate is checked against the name the hint gives.
+            leader.tls?.serverName = host
+        }
+        guard let fresh = try? await TriCore.connect(leader) else { return false }
+        let old = connection
+        connection = await fresh.connection
+        sessionIdentifier = await fresh.sessionIdentifier
+        granted = await fresh.granted
+        currentAddress = target
+        await old.shutdown()
+        return true
+    }
+
+    private static func splitAddress(_ address: String) -> (String, Int)? {
+        let host: Substring
+        let portText: Substring
+        if address.hasPrefix("[") {
+            guard let end = address.range(of: "]:") else { return nil }
+            host = address[address.index(after: address.startIndex)..<end.lowerBound]
+            portText = address[end.upperBound...]
+        } else {
+            guard let colon = address.lastIndex(of: ":") else { return nil }
+            host = address[..<colon]
+            portText = address[address.index(after: colon)...]
+        }
+        guard !host.isEmpty, let port = Int(portText), (1...65535).contains(port) else { return nil }
+        return (String(host), port)
+    }
+
+    private static func joinAddress(_ host: String, _ port: Int) -> String {
+        host.contains(":") ? "[\(host)]:\(port)" : "\(host):\(port)"
+    }
+
+    private func sendOnce(_ envelope: JSONValue) async throws -> Response {
+        let frame = try await exchange(tag: .request, payload: envelope, timeout: options.readTimeout)
         switch Frame.Tag(rawValue: frame.tag) {
         case .response:
             break

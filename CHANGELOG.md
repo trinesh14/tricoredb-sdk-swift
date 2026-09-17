@@ -6,6 +6,20 @@ All notable changes to this package are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-09-17
+
+### Added
+
+- Following the leader: a request refused with `not_leader` is sent again, to the
+  leader the refusal names (over a new connection that replaces the current one) or,
+  while no leader is known, to the same node after a pause. On by default;
+  `TriCoreOptions.followLeader = false` restores the previous behaviour, and
+  `leaderRetries` (5) and `leaderRetryDelay` (250 ms) bound it. Never inside a session
+  transaction.
+- `TriCoreError.outcomeUnknown`: a request that may or may not have been applied. It is
+  never sent again.
+- `TriCore.address`.
+
 ## [0.1.0] - 2026-09-16
 
 First release.
@@ -42,5 +56,6 @@ First release.
 - Errors name a certificate or key file's path, never its contents, and
   `TriCoreOptions.description` prints the secret as `***`.
 
-[Unreleased]: https://github.com/trinesh14/tricoredb-sdk-swift/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/trinesh14/tricoredb-sdk-swift/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/trinesh14/tricoredb-sdk-swift/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/trinesh14/tricoredb-sdk-swift/releases/tag/v0.1.0
