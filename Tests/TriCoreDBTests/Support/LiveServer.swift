@@ -42,14 +42,23 @@ final class LiveServer: @unchecked Sendable {
 
     /// One server for every live test in this process.
     static let shared: LiveServer? = {
+        if let host = running { return LiveServer(running: host) }
         guard binary != nil else { return nil }
         return try? LiveServer()
     }()
 
+    /// The host of a server that is already running, named by `TRICORE_HOST` (with
+    /// `TRICORE_PORT`, `TRICORE_USER` and `TRICORE_SECRET`). It is used as it is and
+    /// never stopped.
+    static let running: String? = {
+        let host = ProcessInfo.processInfo.environment["TRICORE_HOST"] ?? ""
+        return host.isEmpty ? nil : host
+    }()
+
     /// Why the live tests cannot run, or `nil` when they can.
     static var skipReason: String? {
-        if binary == nil {
-            return "no tricore-server binary: set TRICORE_SERVER_BIN, or run one from the Docker image (see the README)"
+        if running == nil && binary == nil {
+            return "no server: set TRICORE_HOST to one that is running, or TRICORE_SERVER_BIN to a binary (see the README)"
         }
         return shared == nil ? "the tricore-server binary could not be started" : nil
     }
@@ -74,16 +83,32 @@ final class LiveServer: @unchecked Sendable {
 
     private let process = Process()
     private let directory: URL
+    private let user: String
+    private let secret: String
+    private let owned: Bool
 
     /// The host the server bound to.
     let host: String
     /// The port it is listening on.
     let port: Int
 
+    private init(running host: String) {
+        let environment = ProcessInfo.processInfo.environment
+        self.host = host
+        port = Int(environment["TRICORE_PORT"] ?? "") ?? 8427
+        user = environment["TRICORE_USER"] ?? "admin"
+        secret = environment["TRICORE_SECRET"] ?? ""
+        directory = URL(fileURLWithPath: NSTemporaryDirectory())
+        owned = false
+    }
+
     private init() throws {
         guard let binary = LiveServer.binary else {
             throw TriCoreError.invalid("no tricore-server binary")
         }
+        user = "admin"
+        secret = "pw"
+        owned = true
         directory = URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent("tricoredb-swift-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -142,7 +167,7 @@ final class LiveServer: @unchecked Sendable {
 
     /// Options pointing at this server.
     func options() -> TriCoreOptions {
-        TriCoreOptions(host: host, port: port, user: "admin", secret: "pw", connectTimeout: .seconds(15))
+        TriCoreOptions(host: host, port: port, user: user, secret: secret, connectTimeout: .seconds(15))
     }
 
     /// Connect to this server as `admin`.
@@ -151,6 +176,7 @@ final class LiveServer: @unchecked Sendable {
     }
 
     deinit {
+        guard owned else { return }
         process.terminate()
         try? FileManager.default.removeItem(at: directory)
     }
@@ -178,5 +204,6 @@ final class LiveServer: @unchecked Sendable {
 
 /// A name no other test in this run uses, so tests can share one server safely.
 func unique(_ prefix: String) -> String {
-    "\(prefix)_\(UUID().uuidString.replacingOccurrences(of: "-", with: "").prefix(10))"
+    let prefix = prefix.hasPrefix("swift_") ? prefix : "swift_\(prefix)"
+    return "\(prefix)_\(UUID().uuidString.replacingOccurrences(of: "-", with: "").prefix(10))"
 }

@@ -50,8 +50,13 @@ public struct TransactionResult: Sendable, Equatable {
     public let discardedWrites: Int
     /// `"began"`, `"committed"` or `"rolled_back"`.
     public let outcome: String
+    /// How many nested blocks are still open, when this answered a `BEGIN`,
+    /// `COMMIT` or `ROLLBACK` sent inside an open transaction. `nil` for the
+    /// outermost one.
+    public let nestedDepth: Int?
 
     init(_ json: JSONValue) {
+        nestedDepth = json["nested_depth"]?.intValue
         statements = json["statements"]?.intValue ?? 0
         committedWrites = json["committed_writes"]?.intValue ?? 0
         discardedWrites = json["discarded_writes"]?.intValue ?? 0

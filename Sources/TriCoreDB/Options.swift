@@ -148,5 +148,5 @@ extension TriCoreOptions: CustomStringConvertible {
 
 /// This package's own version, distinct from the wire protocol's.
 public enum TriCoreDBVersion {
-    public static let current = "0.2.0"
+    public static let current = "0.3.0"
 }

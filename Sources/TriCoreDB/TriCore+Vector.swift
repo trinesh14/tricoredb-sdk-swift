@@ -37,6 +37,12 @@ public struct VectorHit: Sendable, Equatable {
     public let id: String
     public let score: Double
     public let metadata: [String: JSONValue]
+    /// The stored vector, when the search asked for vectors.
+    public let vector: [Float]?
+    /// A one-line plain-language reason, when the search asked to explain.
+    public let reason: String?
+    /// How many of a multi-query search's queries ranked this vector.
+    public let matched: Int?
 }
 
 /// A collection's metadata and its live vector count.
@@ -122,7 +128,8 @@ extension TriCore {
             VectorHit(
                 id: hit["id"]?.stringValue ?? "",
                 score: hit["score"]?.doubleValue ?? 0,
-                metadata: hit["metadata"]?.objectValue ?? [:])
+                metadata: hit["metadata"]?.objectValue ?? [:],
+                vector: nil, reason: nil, matched: nil)
         }
     }
 

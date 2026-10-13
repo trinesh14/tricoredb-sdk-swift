@@ -348,9 +348,14 @@ final class LiveTests: XCTestCase {
     }
 
     func testADisabledModuleIsRefusedByName() async throws {
-        let db = try await live().connect()
         // The test server runs without the cluster module, so the admin plane says so
-        // rather than pretending to be healthy.
+        // rather than pretending to be healthy. A server that was already running
+        // (TRICORE_HOST) has whatever modules its owner enabled, so this is about the
+        // private one only.
+        if LiveServer.running != nil {
+            throw XCTSkip("needs the private test server, which runs without the cluster module")
+        }
+        let db = try await live().connect()
         do {
             try await db.adminPing()
             XCTFail("cluster is off in the test configuration")

@@ -28,8 +28,13 @@ final class ScriptedPeer: @unchecked Sendable {
     private let group: EventLoopGroup
     private var channel: Channel!
 
+    private let handler: ScriptHandler
+
     /// The port this peer listens on.
     private(set) var port: Int = 0
+
+    /// The payload of every REQUEST frame received, decoded, in order.
+    var requests: [JSONValue] { handler.requests }
 
     /// A peer that grants `features` in the handshake and then runs `steps`.
     ///
@@ -67,10 +72,11 @@ final class ScriptedPeer: @unchecked Sendable {
             }
             .bind(host: "127.0.0.1", port: 0)
             .get()
-        return ScriptedPeer(group: group, channel: channel)
+        return ScriptedPeer(group: group, channel: channel, handler: handler)
     }
 
-    private init(group: EventLoopGroup, channel: Channel) {
+    private init(group: EventLoopGroup, channel: Channel, handler: ScriptHandler) {
+        self.handler = handler
         self.group = group
         self.channel = channel
         self.port = channel.localAddress?.port ?? 0
@@ -105,11 +111,24 @@ final class ScriptedPeer: @unchecked Sendable {
 
         private let steps: [Step]
         private var index = 0
+        private let lock = NSLock()
+        private var received: [JSONValue] = []
+
+        var requests: [JSONValue] {
+            lock.lock()
+            defer { lock.unlock() }
+            return received
+        }
 
         init(steps: [Step]) { self.steps = steps }
 
         func channelRead(context: ChannelHandlerContext, data: NIOAny) {
-            _ = unwrapInboundIn(data)
+            let frame = unwrapInboundIn(data)
+            if frame.tag == Frame.Tag.request.rawValue, let json = try? frame.json {
+                lock.lock()
+                received.append(json)
+                lock.unlock()
+            }
             guard index < steps.count else { return }
             play(context, steps[index])
             index += 1

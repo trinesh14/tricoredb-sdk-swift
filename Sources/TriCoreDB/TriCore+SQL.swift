@@ -121,8 +121,12 @@ extension TriCore {
     private func transactionControl(_ keyword: String) async throws -> TransactionResult {
         do {
             let response = try await execute(keyword)
-            setTransactionOpen(keyword == "BEGIN")
-            return TransactionResult(try response.expect("Json", keyword))
+            let result = TransactionResult(try response.expect("Json", keyword))
+            // A BEGIN inside an open transaction opens a nested block, and the COMMIT
+            // or ROLLBACK that ends it answers with `nested_depth`: the outer one is
+            // still open.
+            setTransactionOpen(keyword == "BEGIN" || result.nestedDepth != nil)
+            return result
         } catch let error as TriCoreError {
             let refusedLocally = error.kind == .invalidArgument || error.kind == .featureNotGranted
             if keyword != "BEGIN" && !refusedLocally { setTransactionOpen(false) }

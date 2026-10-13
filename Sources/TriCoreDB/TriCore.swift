@@ -188,13 +188,15 @@ public actor TriCore {
     /// The typed methods cover every operation a client should need; reach for this
     /// only when there is none — an operation that exists to be refused
     /// (`Cache::XGroup`), or one a newer server added ahead of this package.
+    ///
+    /// `txn` names an open document or graph transaction the request runs inside.
     @discardableResult
-    public func request(_ op: JSONValue) async throws -> Response {
-        try await send(op)
+    public func request(_ op: JSONValue, txn: String? = nil) async throws -> Response {
+        try await send(op, txn: txn)
     }
 
     @discardableResult
-    func send(_ op: JSONValue) async throws -> Response {
+    func send(_ op: JSONValue, txn: String? = nil) async throws -> Response {
         requestCounter += 1
         let requestID = "sw-\(requestPrefix)-\(requestCounter)"
         lastRequest = requestID
@@ -208,6 +210,11 @@ public actor TriCore {
             let milliseconds = requestTimeout.components.seconds * 1000
                 + requestTimeout.components.attoseconds / 1_000_000_000_000_000
             envelope["options"] = ["timeout_ms": .int(milliseconds)]
+        }
+        if let txn {
+            var requestOptions = envelope["options"]?.objectValue ?? [:]
+            requestOptions["txn"] = .string(txn)
+            envelope["options"] = .object(requestOptions)
         }
 
         var pause = options.leaderRetryDelay
